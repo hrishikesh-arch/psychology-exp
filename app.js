@@ -811,9 +811,9 @@ function renderAdminDashboard() {
     const avgLat = validLats.length ? (validLats.reduce((a, b) => a + b, 0) / validLats.length).toFixed(1) + "s" : "--";
     const statusClass = session.status === "COMPLETED" ? (validLats.length > 0 ? "ok" : "danger") : "warn";
     
-    const lat1 = session.latencies?.[0] !== null ? `${session.latencies[0]}s` : (session.responded?.[0] === 0 ? "Timeout" : "--");
-    const lat2 = session.latencies?.[1] !== null ? `${session.latencies[1]}s` : (session.responded?.[1] === 0 ? "Timeout" : "--");
-    const lat3 = session.latencies?.[2] !== null ? `${session.latencies[2]}s` : (session.responded?.[2] === 0 ? "Timeout" : "--");
+    const lat1 = session.latencies?.[0] != null ? `${session.latencies[0]}s` : (session.responded?.[0] === 0 ? "Timeout" : "--");
+    const lat2 = session.latencies?.[1] != null ? `${session.latencies[1]}s` : (session.responded?.[1] === 0 ? "Timeout" : "--");
+    const lat3 = session.latencies?.[2] != null ? `${session.latencies[2]}s` : (session.responded?.[2] === 0 ? "Timeout" : "--");
     
     const b1 = session.responded?.[0] !== null && session.responded?.[0] !== undefined ? session.responded[0] : "--";
     const b2 = session.responded?.[1] !== null && session.responded?.[1] !== undefined ? session.responded[1] : "--";
@@ -877,9 +877,9 @@ function renderAdminDashboard() {
               const avgLat = validLats.length ? (validLats.reduce((a, b) => a + b, 0) / validLats.length).toFixed(1) + "s" : "--";
               const statusClass = session.status === "COMPLETED" ? (validLats.length > 0 ? "ok" : "danger") : "warn";
               
-              const lat1 = session.latencies?.[0] !== null ? `${session.latencies[0]}s` : (session.responded?.[0] === 0 ? "Timeout" : "--");
-              const lat2 = session.latencies?.[1] !== null ? `${session.latencies[1]}s` : (session.responded?.[1] === 0 ? "Timeout" : "--");
-              const lat3 = session.latencies?.[2] !== null ? `${session.latencies[2]}s` : (session.responded?.[2] === 0 ? "Timeout" : "--");
+              const lat1 = session.latencies?.[0] != null ? `${session.latencies[0]}s` : (session.responded?.[0] === 0 ? "Timeout" : "--");
+              const lat2 = session.latencies?.[1] != null ? `${session.latencies[1]}s` : (session.responded?.[1] === 0 ? "Timeout" : "--");
+              const lat3 = session.latencies?.[2] != null ? `${session.latencies[2]}s` : (session.responded?.[2] === 0 ? "Timeout" : "--");
               
               const b1 = session.responded?.[0] !== null && session.responded?.[0] !== undefined ? session.responded[0] : "--";
               const b2 = session.responded?.[1] !== null && session.responded?.[1] !== undefined ? session.responded[1] : "--";
