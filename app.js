@@ -21,6 +21,7 @@ const firebaseConfig = {
 if (typeof firebase !== 'undefined') {
   try {
     firebase.initializeApp(firebaseConfig);
+    firebase.analytics();
     if (typeof firebase.database === 'function') {
       firebase.database().ref('groups').on('value', (snapshot) => {
         const data = snapshot.val() || {};
