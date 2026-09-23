@@ -248,13 +248,23 @@ function renderFrame(content, wide = false) {
     button.addEventListener("click", () => {
       clearTimers();
       if (button.dataset.view === "admin") {
+        window.location.hash = "#admin";
         if (sessionStorage.getItem("study_admin") === "true") {
-          renderAdminDashboard();
+          try {
+            renderAdminDashboard();
+          } catch (e) {
+            console.error("Admin dashboard error:", e);
+            renderAdminLogin();
+          }
         } else {
           renderAdminLogin();
         }
       } else {
-        renderOnboarding();
+        if (window.location.hash === "#admin") {
+          window.location.hash = "";
+        } else {
+          renderOnboarding();
+        }
       }
     });
   });
@@ -860,8 +870,22 @@ function renderDebrief(sessionId) {
       <div class="action-row"><button class="primary-btn" id="newSession">New Session</button><button class="secondary-btn" id="openAdmin">Open Admin</button></div>
     </section>
   `);
-  document.getElementById("newSession").addEventListener("click", renderOnboarding);
-  document.getElementById("openAdmin").addEventListener("click", renderAdminLogin);
+  document.getElementById("newSession").addEventListener("click", () => {
+    window.location.hash = "";
+    renderOnboarding();
+  });
+  document.getElementById("openAdmin").addEventListener("click", () => {
+    window.location.hash = "#admin";
+    if (sessionStorage.getItem("study_admin") === "true") {
+      try {
+        renderAdminDashboard();
+      } catch (e) {
+        renderAdminLogin();
+      }
+    } else {
+      renderAdminLogin();
+    }
+  });
 }
 
 function renderAdminLogin(error = "") {
