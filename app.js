@@ -33,6 +33,13 @@ function cleanForFirebase(obj) {
   return cleanObj;
 }
 
+function ensureArray(val) {
+  if (!val) return [];
+  if (Array.isArray(val)) return val;
+  if (typeof val === 'object') return Object.values(val);
+  return [val];
+}
+
 if (typeof firebase !== 'undefined') {
   try {
     firebase.initializeApp(firebaseConfig);
@@ -57,6 +64,10 @@ function syncLocalAndFirebase() {
 
       fbSessions.forEach(fs => {
         if (!fs || !fs.id) return;
+        fs.latencies = ensureArray(fs.latencies);
+        fs.responded = ensureArray(fs.responded);
+        fs.messages = ensureArray(fs.messages);
+
         const existingIdx = state.sessions.findIndex(s => s.id === fs.id);
         if (existingIdx === -1) {
           state.sessions.push(fs);
@@ -918,18 +929,21 @@ function renderAdminLogin(error = "") {
 
 function renderSessionRow(session) {
   if (!session) return "";
-  const validLats = (session.latencies || []).filter(l => l !== null && l !== undefined);
+  const lats = ensureArray(session.latencies);
+  const resps = ensureArray(session.responded);
+
+  const validLats = lats.filter(l => l !== null && l !== undefined && typeof l === 'number');
   const avgLat = validLats.length ? (validLats.reduce((a, b) => a + b, 0) / validLats.length).toFixed(1) + "s" : "--";
   const statusClass = session.status === "COMPLETED" ? (validLats.length > 0 ? "ok" : "danger") : "warn";
-  
-  const lat1 = session.latencies?.[0] != null ? `${session.latencies[0]}s` : (session.responded?.[0] === 0 ? "Timeout" : "--");
-  const lat2 = session.latencies?.[1] != null ? `${session.latencies[1]}s` : (session.responded?.[1] === 0 ? "Timeout" : "--");
-  const lat3 = session.latencies?.[2] != null ? `${session.latencies[2]}s` : (session.responded?.[2] === 0 ? "Timeout" : "--");
-  
-  const b1 = session.responded?.[0] !== null && session.responded?.[0] !== undefined ? session.responded[0] : "--";
-  const b2 = session.responded?.[1] !== null && session.responded?.[1] !== undefined ? session.responded[1] : "--";
-  const b3 = session.responded?.[2] !== null && session.responded?.[2] !== undefined ? session.responded[2] : "--";
-  
+
+  const lat1 = lats[0] != null ? `${lats[0]}s` : (resps[0] === 0 ? "Timeout" : "--");
+  const lat2 = lats[1] != null ? `${lats[1]}s` : (resps[1] === 0 ? "Timeout" : "--");
+  const lat3 = lats[2] != null ? `${lats[2]}s` : (resps[2] === 0 ? "Timeout" : "--");
+
+  const b1 = resps[0] !== null && resps[0] !== undefined ? resps[0] : "--";
+  const b2 = resps[1] !== null && resps[1] !== undefined ? resps[1] : "--";
+  const b3 = resps[2] !== null && resps[2] !== undefined ? resps[2] : "--";
+
   return `
     <tr>
       <td><strong>${escapeHtml(session.participantName || "Participant")}</strong><small>${escapeHtml(session.participantEmail || "")}</small></td>
@@ -1212,24 +1226,28 @@ function logEvent(sessionId, type, details = {}) {
 function exportCsv() {
   const state = loadState();
   const header = ["participant_name", "phone", "email", "group_code", "condition", "responded_1", "responded_2", "responded_3", "latency_1", "latency_2", "latency_3", "avg_latency", "entry_time", "completed_at"];
-  const rows = state.sessions.map((session) => {
-    const validLats = (session.latencies || []).filter(l => l !== null);
+  const sessionsList = ensureArray(state.sessions);
+  const rows = sessionsList.map((session) => {
+    if (!session) return [];
+    const lats = ensureArray(session.latencies);
+    const resps = ensureArray(session.responded);
+    const validLats = lats.filter(l => l !== null && l !== undefined && typeof l === 'number');
     const avgLat = validLats.length ? (validLats.reduce((a, b) => a + b, 0) / validLats.length).toFixed(1) : "";
     return [
-      session.participantName,
-      session.participantPhone,
-      session.participantEmail,
-      session.groupCode,
-      session.condition,
-      session.responded?.[0],
-      session.responded?.[1],
-      session.responded?.[2],
-      session.latencies?.[0],
-      session.latencies?.[1],
-      session.latencies?.[2],
+      session.participantName || "",
+      session.participantPhone || "",
+      session.participantEmail || "",
+      session.groupCode || "",
+      session.condition || "",
+      resps[0] ?? "",
+      resps[1] ?? "",
+      resps[2] ?? "",
+      lats[0] ?? "",
+      lats[1] ?? "",
+      lats[2] ?? "",
       avgLat,
-      session.entryTime,
-      session.completedAt
+      session.entryTime || "",
+      session.completedAt || ""
     ].map(csvCell);
   });
   const csv = [header, ...rows].map((row) => row.join(",")).join("\n");
@@ -1245,15 +1263,17 @@ function exportCsv() {
 }
 
 function statusLabel(session) {
+  if (!session) return "Unknown";
   if (session.status === "COMPLETED") {
-    const validLats = (session.latencies || []).filter(l => l !== null);
+    const lats = ensureArray(session.latencies);
+    const validLats = lats.filter(l => l !== null && l !== undefined && typeof l === 'number');
     if (validLats.length > 0) {
       const avgLat = (validLats.reduce((a, b) => a + b, 0) / validLats.length).toFixed(1);
       return `Responded (Avg ${avgLat}s)`;
     }
     return "Did not respond in time";
   }
-  return session.status;
+  return session.status || "WAITING";
 }
 
 function formatClock(value) {
