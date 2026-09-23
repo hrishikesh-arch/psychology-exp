@@ -173,8 +173,26 @@ const postHelpScript = [];
 function loadState() {
   const fallback = { groups: [], sessions: [], events: [] };
   try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY)) || fallback;
-  } catch {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw) || fallback;
+    if (!parsed.groups) parsed.groups = [];
+    if (!parsed.sessions) parsed.sessions = [];
+    if (!parsed.events) parsed.events = [];
+
+    parsed.groups = ensureArray(parsed.groups);
+    parsed.events = ensureArray(parsed.events);
+    parsed.sessions = ensureArray(parsed.sessions).map(session => {
+      if (!session) return null;
+      session.latencies = ensureArray(session.latencies);
+      session.responded = ensureArray(session.responded);
+      session.messages = ensureArray(session.messages);
+      return session;
+    }).filter(Boolean);
+
+    return parsed;
+  } catch (e) {
+    console.warn("Error parsing loadState:", e);
     return fallback;
   }
 }
@@ -1153,7 +1171,7 @@ function renderAdminDashboard() {
 
 function transcriptMarkup(session) {
   if (!session) return "";
-  const msgList = Array.isArray(session.messages) ? session.messages : [];
+  const msgList = ensureArray(session.messages);
   const messages = msgList.length
     ? msgList.map((message) => {
         if (!message) return "";
@@ -1165,6 +1183,10 @@ function transcriptMarkup(session) {
         `;
       }).join("")
     : '<div class="empty">No messages yet.</div>';
+
+  const lats = ensureArray(session.latencies);
+  const hasValidLat = lats.some(l => l !== null && l !== undefined && typeof l === 'number');
+
   return `
     <article class="transcript-card">
       <header>
@@ -1172,7 +1194,7 @@ function transcriptMarkup(session) {
           <strong>${escapeHtml(session.participantName || "Participant")}</strong>
           <small>${escapeHtml(session.groupCode || "")} · ${escapeHtml(session.condition || "")}</small>
         </div>
-        <span class="badge ${session.status === "COMPLETED" ? ((session.latencies || []).some(l => l !== null) ? "ok" : "danger") : "warn"}">${escapeHtml(statusLabel(session))}</span>
+        <span class="badge ${session.status === "COMPLETED" ? (hasValidLat ? "ok" : "danger") : "warn"}">${escapeHtml(statusLabel(session))}</span>
       </header>
       <div class="admin-chat-log">${messages}</div>
     </article>
