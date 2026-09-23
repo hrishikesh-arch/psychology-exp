@@ -18,30 +18,114 @@ const firebaseConfig = {
   appId: "1:883810074062:web:6d691817fa94cb94beff9f",
   measurementId: "G-MHTHP5PE9W"
 };
+function cleanForFirebase(obj) {
+  if (obj === null || obj === undefined) return null;
+  if (typeof obj !== 'object') return obj;
+  if (Array.isArray(obj)) {
+    return obj.map(item => cleanForFirebase(item));
+  }
+  const cleanObj = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value !== undefined) {
+      cleanObj[key] = cleanForFirebase(value);
+    }
+  }
+  return cleanObj;
+}
+
 if (typeof firebase !== 'undefined') {
   try {
     firebase.initializeApp(firebaseConfig);
     firebase.analytics();
-    if (typeof firebase.database === 'function') {
-      firebase.database().ref('groups').on('value', (snapshot) => {
-        const data = snapshot.val() || {};
-        const fbGroups = Object.values(data);
-        try {
-          const fallback = { groups: [], sessions: [], events: [] };
-          const state = JSON.parse(localStorage.getItem(STORAGE_KEY)) || fallback;
-          let changed = false;
-          fbGroups.forEach(fg => {
-            if (!state.groups.some(lg => lg.id === fg.id)) {
-              state.groups.push(fg);
-              changed = true;
-            }
-          });
-          if (changed) localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-        } catch (e) {}
+    syncLocalAndFirebase();
+  } catch (e) {
+    console.warn("Firebase init failed:", e);
+  }
+}
+
+function syncLocalAndFirebase() {
+  if (typeof firebase === 'undefined' || typeof firebase.database !== 'function') return;
+  try {
+    const db = firebase.database();
+    
+    // Listen to sessions from Firebase and merge into localStorage
+    db.ref('sessions').on('value', (snapshot) => {
+      const data = snapshot.val() || {};
+      const fbSessions = Object.values(data);
+      const state = loadState();
+      let changed = false;
+
+      fbSessions.forEach(fs => {
+        if (!fs || !fs.id) return;
+        const existingIdx = state.sessions.findIndex(s => s.id === fs.id);
+        if (existingIdx === -1) {
+          state.sessions.push(fs);
+          changed = true;
+        } else if (fs.status === "COMPLETED" && state.sessions[existingIdx].status !== "COMPLETED") {
+          state.sessions[existingIdx] = fs;
+          changed = true;
+        }
+      });
+
+      if (changed) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      }
+
+      pushUnsyncedSessionsToFirebase(state);
+    }, (err) => {
+      console.warn("Firebase sessions listener error (check security rules):", err);
+    });
+
+    // Listen to groups from Firebase
+    db.ref('groups').on('value', (snapshot) => {
+      const data = snapshot.val() || {};
+      const fbGroups = Object.values(data);
+      const state = loadState();
+      let changed = false;
+
+      fbGroups.forEach(fg => {
+        if (!fg || !fg.id) return;
+        if (!state.groups.some(lg => lg.id === fg.id)) {
+          state.groups.push(fg);
+          changed = true;
+        }
+      });
+
+      if (changed) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      }
+    }, (err) => {
+      console.warn("Firebase groups listener error (check security rules):", err);
+    });
+
+  } catch (e) {
+    console.warn("Firebase sync setup error:", e);
+  }
+}
+
+function pushUnsyncedSessionsToFirebase(state) {
+  if (typeof firebase === 'undefined' || typeof firebase.database !== 'function') return;
+  try {
+    const db = firebase.database();
+    const current = state || loadState();
+    if (Array.isArray(current.sessions)) {
+      current.sessions.forEach(session => {
+        if (session && session.id) {
+          const cleaned = cleanForFirebase(session);
+          db.ref('sessions/' + session.id).set(cleaned).catch(e => console.warn("FB Session push error:", e));
+        }
+      });
+    }
+    if (Array.isArray(current.groups)) {
+      current.groups.forEach(group => {
+        if (group && group.id) {
+          const cleaned = cleanForFirebase(group);
+          db.ref('groups/' + group.id).set(cleaned).catch(e => console.warn("FB Group push error:", e));
+        }
       });
     }
   } catch (e) {
-    console.warn("Firebase init failed:", e);
+    console.warn("Failed to push unsynced sessions to Firebase:", e);
   }
 }
 
@@ -89,12 +173,22 @@ function saveState(state) {
   try {
     if (typeof firebase !== 'undefined' && typeof firebase.database === 'function') {
       const db = firebase.database();
-      state.sessions.forEach(session => {
-        db.ref('sessions/' + session.id).set(session).catch(e => console.warn("FB Session error", e));
-      });
-      state.groups.forEach(group => {
-        db.ref('groups/' + group.id).set(group).catch(e => console.warn("FB Group error", e));
-      });
+      if (Array.isArray(state.sessions)) {
+        state.sessions.forEach(session => {
+          if (session && session.id) {
+            const cleaned = cleanForFirebase(session);
+            db.ref('sessions/' + session.id).set(cleaned).catch(e => console.warn("FB Session error", e));
+          }
+        });
+      }
+      if (Array.isArray(state.groups)) {
+        state.groups.forEach(group => {
+          if (group && group.id) {
+            const cleaned = cleanForFirebase(group);
+            db.ref('groups/' + group.id).set(cleaned).catch(e => console.warn("FB Group error", e));
+          }
+        });
+      }
     }
   } catch (e) {
     console.warn("Firebase sync failed:", e);
@@ -852,7 +946,14 @@ function renderAdminDashboard() {
         <button class="primary-btn" type="submit">Create</button>
       </form>
       <div class="admin-main">
-        <div class="admin-toolbar"><button class="primary-btn" id="exportCsv">Export CSV</button><button class="secondary-btn" id="refreshAdmin">Refresh</button><button class="danger-btn" id="clearData">Wipe All Data</button></div>
+        <div class="admin-toolbar">
+          <button class="primary-btn" id="exportCsv">Export CSV</button>
+          <button class="secondary-btn" id="syncFirebaseBtn">Push Local Data to Firebase</button>
+          <button class="secondary-btn" id="importJsonBtn">Import JSON Backup</button>
+          <input type="file" id="importJsonInput" accept=".json" style="display:none">
+          <button class="secondary-btn" id="refreshAdmin">Refresh</button>
+          <button class="danger-btn" id="clearData">Wipe All Data</button>
+        </div>
         <section class="table-card"><h2>Groups</h2><div class="table-wrap"><table><thead><tr><th>Group</th><th>Creator</th><th>Bots</th><th>Condition</th><th>Sessions</th></tr></thead><tbody id="groupTableBody">${groupRows || '<tr><td colspan="5" class="empty">No groups yet.</td></tr>'}</tbody></table></div></section>
         <section class="table-card"><h2>Participant Sessions <small id="fbSyncStatus" style="font-weight:normal;color:var(--green-600);">(Syncing from Firebase...)</small></h2><div class="table-wrap"><table><thead><tr><th>Participant</th><th>Phone</th><th>Group</th><th>Condition</th><th>Status</th><th>B1</th><th>B2</th><th>B3</th><th>Lat 1</th><th>Lat 2</th><th>Lat 3</th><th>Avg</th></tr></thead><tbody id="sessionTableBody">${sessionRows || '<tr><td colspan="12" class="empty">No participant data yet.</td></tr>'}</tbody></table></div></section>
         <section class="table-card"><h2>Chat Transcripts</h2><div class="transcript-list" id="transcriptListBody">${transcriptCards || '<div class="empty">No chats have reached the admin account yet.</div>'}</div></section>
@@ -957,6 +1058,65 @@ function renderAdminDashboard() {
     renderAdminDashboard();
   });
   document.getElementById("exportCsv").addEventListener("click", exportCsv);
+  document.getElementById("syncFirebaseBtn").addEventListener("click", () => {
+    const state = loadState();
+    pushUnsyncedSessionsToFirebase(state);
+    alert(`Triggered sync to Firebase for ${state.sessions.length} local session(s).`);
+  });
+
+  document.getElementById("importJsonBtn").addEventListener("click", () => {
+    document.getElementById("importJsonInput").click();
+  });
+
+  document.getElementById("importJsonInput").addEventListener("change", (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const imported = JSON.parse(e.target.result);
+        const state = loadState();
+        let addedCount = 0;
+
+        const items = Array.isArray(imported) ? imported : (imported.sessions || imported.users || []);
+        items.forEach(item => {
+          if (!item) return;
+          const sessionId = item.id ? (String(item.id).startsWith("ses_") ? item.id : `ses_imp_${item.id}_${Date.now()}`) : createId("ses");
+          if (!state.sessions.some(s => s.id === sessionId || (s.participantEmail && item.email && s.participantEmail === item.email))) {
+            const formattedSession = item.participantName ? item : {
+              id: sessionId,
+              participantName: item.name || "Participant",
+              participantPhone: item.phone || "",
+              participantEmail: item.email || "",
+              groupId: "grp_default",
+              groupCode: item.group || "GROUP4",
+              groupName: item.group || "Group 4",
+              condition: "READ_RECEIPTS_ON",
+              status: item.completed ? "COMPLETED" : "NORMAL_CONVERSATION",
+              latencies: [item.durationMs ? Number((item.durationMs / 1000).toFixed(1)) : null, null, null],
+              responded: [item.q1Answered ? 1 : 0, item.q2Answered ? 1 : 0, item.q3Answered ? 1 : 0],
+              messages: []
+            };
+            state.sessions.push(formattedSession);
+            addedCount++;
+          }
+        });
+
+        if (addedCount > 0) {
+          saveState(state);
+          pushUnsyncedSessionsToFirebase(state);
+          alert(`Successfully imported and queued ${addedCount} data records to Firebase!`);
+          renderAdminDashboard();
+        } else {
+          alert("No new records were added (records may already exist).");
+        }
+      } catch (err) {
+        alert("Failed to parse JSON file: " + err.message);
+      }
+    };
+    reader.readAsText(file);
+  });
+
   document.getElementById("refreshAdmin").addEventListener("click", renderAdminDashboard);
   document.getElementById("clearData").addEventListener("click", () => {
     if (confirm("Are you sure you want to wipe ALL data including Firebase? This cannot be undone.")) {
