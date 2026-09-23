@@ -883,14 +883,51 @@ function renderAdminLogin(error = "") {
       return;
     }
     sessionStorage.setItem("study_admin", "true");
-    renderAdminDashboard();
+    try {
+      renderAdminDashboard();
+    } catch (e) {
+      console.error("Dashboard render error:", e);
+      renderAdminLogin("Error loading dashboard: " + e.message);
+    }
   });
+}
+
+function renderSessionRow(session) {
+  if (!session) return "";
+  const validLats = (session.latencies || []).filter(l => l !== null && l !== undefined);
+  const avgLat = validLats.length ? (validLats.reduce((a, b) => a + b, 0) / validLats.length).toFixed(1) + "s" : "--";
+  const statusClass = session.status === "COMPLETED" ? (validLats.length > 0 ? "ok" : "danger") : "warn";
+  
+  const lat1 = session.latencies?.[0] != null ? `${session.latencies[0]}s` : (session.responded?.[0] === 0 ? "Timeout" : "--");
+  const lat2 = session.latencies?.[1] != null ? `${session.latencies[1]}s` : (session.responded?.[1] === 0 ? "Timeout" : "--");
+  const lat3 = session.latencies?.[2] != null ? `${session.latencies[2]}s` : (session.responded?.[2] === 0 ? "Timeout" : "--");
+  
+  const b1 = session.responded?.[0] !== null && session.responded?.[0] !== undefined ? session.responded[0] : "--";
+  const b2 = session.responded?.[1] !== null && session.responded?.[1] !== undefined ? session.responded[1] : "--";
+  const b3 = session.responded?.[2] !== null && session.responded?.[2] !== undefined ? session.responded[2] : "--";
+  
+  return `
+    <tr>
+      <td><strong>${escapeHtml(session.participantName || "Participant")}</strong><small>${escapeHtml(session.participantEmail || "")}</small></td>
+      <td>${escapeHtml(session.participantPhone || "")}</td>
+      <td>${escapeHtml(session.groupCode || "")}</td>
+      <td>${escapeHtml(session.condition || "")}</td>
+      <td><span class="badge ${statusClass}">${escapeHtml(statusLabel(session))}</span></td>
+      <td>${b1}</td>
+      <td>${b2}</td>
+      <td>${b3}</td>
+      <td>${lat1}</td>
+      <td>${lat2}</td>
+      <td>${lat3}</td>
+      <td><strong>${avgLat}</strong></td>
+    </tr>
+  `;
 }
 
 function renderAdminDashboard() {
   const state = ensureDefaultGroups(loadState());
   const groupRows = state.groups.map((group) => {
-    const sessions = state.sessions.filter((session) => session.groupId === group.id);
+    const sessions = state.sessions.filter((session) => session && session.groupId === group.id);
     return `
       <tr>
         <td><strong>${escapeHtml(group.name)}</strong><small>${escapeHtml(group.code)}</small></td>
@@ -901,36 +938,7 @@ function renderAdminDashboard() {
       </tr>
     `;
   }).join("");
-  const sessionRows = state.sessions.map((session) => {
-    const validLats = (session.latencies || []).filter(l => l !== null);
-    const avgLat = validLats.length ? (validLats.reduce((a, b) => a + b, 0) / validLats.length).toFixed(1) + "s" : "--";
-    const statusClass = session.status === "COMPLETED" ? (validLats.length > 0 ? "ok" : "danger") : "warn";
-    
-    const lat1 = session.latencies?.[0] != null ? `${session.latencies[0]}s` : (session.responded?.[0] === 0 ? "Timeout" : "--");
-    const lat2 = session.latencies?.[1] != null ? `${session.latencies[1]}s` : (session.responded?.[1] === 0 ? "Timeout" : "--");
-    const lat3 = session.latencies?.[2] != null ? `${session.latencies[2]}s` : (session.responded?.[2] === 0 ? "Timeout" : "--");
-    
-    const b1 = session.responded?.[0] !== null && session.responded?.[0] !== undefined ? session.responded[0] : "--";
-    const b2 = session.responded?.[1] !== null && session.responded?.[1] !== undefined ? session.responded[1] : "--";
-    const b3 = session.responded?.[2] !== null && session.responded?.[2] !== undefined ? session.responded[2] : "--";
-    
-    return `
-      <tr>
-        <td><strong>${escapeHtml(session.participantName)}</strong><small>${escapeHtml(session.participantEmail || "")}</small></td>
-        <td>${escapeHtml(session.participantPhone || "")}</td>
-        <td>${escapeHtml(session.groupCode)}</td>
-        <td>${escapeHtml(session.condition)}</td>
-        <td><span class="badge ${statusClass}">${escapeHtml(statusLabel(session))}</span></td>
-        <td>${b1}</td>
-        <td>${b2}</td>
-        <td>${b3}</td>
-        <td>${lat1}</td>
-        <td>${lat2}</td>
-        <td>${lat3}</td>
-        <td><strong>${avgLat}</strong></td>
-      </tr>
-    `;
-  }).join("");
+  const sessionRows = state.sessions.map(renderSessionRow).join("");
   const transcriptCards = state.sessions.map(transcriptMarkup).join("");
 
   renderFrame(`
@@ -967,44 +975,15 @@ function renderAdminDashboard() {
         firebase.database().ref('sessions').on('value', (snapshot) => {
           const data = snapshot.val() || {};
           const allSessions = Object.values(data);
-          allSessions.sort((a, b) => b.at ? b.at.localeCompare(a.at) : -1);
+          allSessions.sort((a, b) => (b.entryTime || "").localeCompare(a.entryTime || ""));
           
           const sBody = document.getElementById("sessionTableBody");
           const tBody = document.getElementById("transcriptListBody");
           const sStatus = document.getElementById("fbSyncStatus");
           
           if (sBody) {
-            const rows = allSessions.map((session) => {
-              const validLats = (session.latencies || []).filter(l => l !== null);
-              const avgLat = validLats.length ? (validLats.reduce((a, b) => a + b, 0) / validLats.length).toFixed(1) + "s" : "--";
-              const statusClass = session.status === "COMPLETED" ? (validLats.length > 0 ? "ok" : "danger") : "warn";
-              
-              const lat1 = session.latencies?.[0] != null ? `${session.latencies[0]}s` : (session.responded?.[0] === 0 ? "Timeout" : "--");
-              const lat2 = session.latencies?.[1] != null ? `${session.latencies[1]}s` : (session.responded?.[1] === 0 ? "Timeout" : "--");
-              const lat3 = session.latencies?.[2] != null ? `${session.latencies[2]}s` : (session.responded?.[2] === 0 ? "Timeout" : "--");
-              
-              const b1 = session.responded?.[0] !== null && session.responded?.[0] !== undefined ? session.responded[0] : "--";
-              const b2 = session.responded?.[1] !== null && session.responded?.[1] !== undefined ? session.responded[1] : "--";
-              const b3 = session.responded?.[2] !== null && session.responded?.[2] !== undefined ? session.responded[2] : "--";
-              
-              return `
-                <tr>
-                  <td><strong>${escapeHtml(session.participantName)}</strong><small>${escapeHtml(session.participantEmail || "")}</small></td>
-                  <td>${escapeHtml(session.participantPhone || "")}</td>
-                  <td>${escapeHtml(session.groupCode)}</td>
-                  <td>${escapeHtml(session.condition)}</td>
-                  <td><span class="badge ${statusClass}">${escapeHtml(statusLabel(session))}</span></td>
-                  <td>${b1}</td>
-                  <td>${b2}</td>
-                  <td>${b3}</td>
-                  <td>${lat1}</td>
-                  <td>${lat2}</td>
-                  <td>${lat3}</td>
-                  <td><strong>${avgLat}</strong></td>
-                </tr>
-              `;
-            }).join("");
-            sBody.innerHTML = rows || '<tr><td colspan="9" class="empty">No participant data yet.</td></tr>';
+            const rows = allSessions.map(renderSessionRow).join("");
+            sBody.innerHTML = rows || '<tr><td colspan="12" class="empty">No participant data yet.</td></tr>';
           }
           
           if (tBody) {
@@ -1135,20 +1114,25 @@ function renderAdminDashboard() {
 }
 
 function transcriptMarkup(session) {
-  const messages = session.messages.length
-    ? session.messages.map((message) => `
-      <div class="admin-message ${message.kind === "participant" ? "from-user" : ""}">
-        <span>${formatClock(message.at)} · ${escapeHtml(message.sender)}</span>
-        <p>${escapeHtml(message.text)}</p>
-      </div>
-    `).join("")
+  if (!session) return "";
+  const msgList = Array.isArray(session.messages) ? session.messages : [];
+  const messages = msgList.length
+    ? msgList.map((message) => {
+        if (!message) return "";
+        return `
+          <div class="admin-message ${message.kind === "participant" ? "from-user" : ""}">
+            <span>${formatClock(message.at)} · ${escapeHtml(message.sender || "System")}</span>
+            <p>${escapeHtml(message.text || "")}</p>
+          </div>
+        `;
+      }).join("")
     : '<div class="empty">No messages yet.</div>';
   return `
     <article class="transcript-card">
       <header>
         <div>
-          <strong>${escapeHtml(session.participantName)}</strong>
-          <small>${escapeHtml(session.groupCode)} · ${escapeHtml(session.condition)}</small>
+          <strong>${escapeHtml(session.participantName || "Participant")}</strong>
+          <small>${escapeHtml(session.groupCode || "")} · ${escapeHtml(session.condition || "")}</small>
         </div>
         <span class="badge ${session.status === "COMPLETED" ? ((session.latencies || []).some(l => l !== null) ? "ok" : "danger") : "warn"}">${escapeHtml(statusLabel(session))}</span>
       </header>
@@ -1249,7 +1233,10 @@ function statusLabel(session) {
 }
 
 function formatClock(value) {
-  return new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  if (!value) return "";
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
 function csvCell(value) {
@@ -1269,7 +1256,12 @@ function escapeHtml(text) {
 function checkInitialRoute() {
   if (window.location.hash === "#admin" || window.location.search.includes("admin")) {
     if (sessionStorage.getItem("study_admin") === "true") {
-      renderAdminDashboard();
+      try {
+        renderAdminDashboard();
+      } catch (e) {
+        console.error("Initial route admin dashboard error:", e);
+        renderAdminLogin("Error loading dashboard: " + e.message);
+      }
     } else {
       renderAdminLogin();
     }
